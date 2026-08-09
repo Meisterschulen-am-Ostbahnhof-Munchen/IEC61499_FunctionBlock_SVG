@@ -11,6 +11,8 @@
  *   const svg = convertFbtToSvg(xmlString, options);
  */
 
+const VERSION = "1.0.1";
+
 // Port class
 class Port {
     constructor(name, portType = "", comment = "", associatedVars = []) {
@@ -1317,7 +1319,7 @@ function convertFbtToSvg(xmlString, options = {}) {
 
 // Node.js CLI support
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { convertFbtToSvg, IEC61499Parser, SVGRenderer, FunctionBlock, Port };
+    module.exports = { convertFbtToSvg, IEC61499Parser, SVGRenderer, FunctionBlock, Port, VERSION };
 
     // CLI execution
     if (require.main === module) {
@@ -1325,6 +1327,10 @@ if (typeof module !== 'undefined' && module.exports) {
         const path = require('path');
 
         const args = process.argv.slice(2);
+        if (args.includes('--version')) {
+            console.log(`iec61499_to_svg.js ${VERSION}`);
+            process.exit(0);
+        }
         if (args.length === 0) {
             console.log('Usage: node iec61499_to_svg.js input.fbt [-o output.svg] [--no-comments] [--no-types] [--no-shadow]');
             console.log('                                  [--font FAMILY] [--font-italic FAMILY] [--font-size PX]');

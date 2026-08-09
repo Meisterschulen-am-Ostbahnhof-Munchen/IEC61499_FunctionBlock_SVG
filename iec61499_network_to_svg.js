@@ -11,6 +11,8 @@
  *   const svg = convertNetworkToSvg(xmlString, options);
  */
 
+const VERSION = "1.0.1";
+
 // ===========================================================================
 // Block Size Settings (4diac IDE defaults)
 // ===========================================================================
@@ -2299,7 +2301,7 @@ if (typeof module !== 'undefined' && module.exports) {
         convertNetworkToSvg,
         NetworkParser, TypeResolver, NetworkLayoutEngine, ConnectionRouter, NetworkSVGRenderer,
         NetworkModel, FBInstance, Connection, InterfacePort, Port,
-        BlockSizeSettings, loadBlockSizeSettings, _truncateLabel
+        BlockSizeSettings, loadBlockSizeSettings, _truncateLabel, VERSION
     };
 
     if (require.main === module) {
@@ -2307,6 +2309,10 @@ if (typeof module !== 'undefined' && module.exports) {
         const path = require('path');
 
         const args = process.argv.slice(2);
+        if (args.includes('--version')) {
+            console.log(`iec61499_network_to_svg.js ${VERSION}`);
+            process.exit(0);
+        }
         if (args.length === 0) {
             console.log('Usage: node iec61499_network_to_svg.js input.fbt [-o output.svg] [--type-lib path] [--no-shadow] [--grid]');
             console.log('                                          [--settings file.ini] [--font FAMILY] [--font-italic FAMILY] [--font-size PX]');

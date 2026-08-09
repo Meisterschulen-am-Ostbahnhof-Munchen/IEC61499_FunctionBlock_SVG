@@ -6,6 +6,8 @@ Converts IEC 61499 function block XML definitions (.fbt files) to SVG graphics
 in the style of 4diac IDE.
 """
 
+__version__ = "1.0.1"
+
 import xml.etree.ElementTree as ET
 import argparse
 import os
@@ -1583,6 +1585,8 @@ def main():
         description="Convert IEC 61499 Function Block XML to SVG (4diac style)"
     )
     parser.add_argument("input", help="Input .fbt file or directory")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {__version__}")
     parser.add_argument("-o", "--output", help="Output SVG file or directory")
     parser.add_argument("--stdout", action="store_true", help="Print to stdout")
     parser.add_argument("--batch", action="store_true", help="Batch convert directory")

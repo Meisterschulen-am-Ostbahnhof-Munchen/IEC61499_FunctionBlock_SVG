@@ -8,6 +8,8 @@ diagrams in the style of 4diac IDE's network view.
 Shows FB instances as boxes with event/data/adapter connections routed between them.
 """
 
+__version__ = "1.0.1"
+
 import xml.etree.ElementTree as ET
 import argparse
 import configparser
@@ -2988,6 +2990,8 @@ def main():
         description="Convert IEC 61499 Function Block Network to SVG (4diac network view style)"
     )
     parser.add_argument("input", help="Input .fbt/.sub/.sys file or directory")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {__version__}")
     parser.add_argument("-o", "--output", help="Output SVG file or directory")
     parser.add_argument("--type-lib", action="append", default=[], help="Type library root directory (can be specified multiple times)")
     parser.add_argument("--stdout", action="store_true", help="Print SVG to stdout")

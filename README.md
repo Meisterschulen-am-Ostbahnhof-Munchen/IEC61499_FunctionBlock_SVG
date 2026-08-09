@@ -160,6 +160,19 @@ family_italic = Menlo, Consolas, monospace
 size = 12
 ```
 
+### Version
+
+Each converter reports its own version:
+
+```bash
+python3 iec61499_to_svg.py --version
+python3 iec61499_network_to_svg.py --version
+node iec61499_to_svg.js --version
+node iec61499_network_to_svg.js --version
+```
+
+The JavaScript modules also export it as `VERSION`; the Python modules as `__version__`.
+
 ### Requirements
 
 - **Python**: stdlib only (Python 3). Optional `Pillow` for accurate text measurement (`pip install Pillow`).

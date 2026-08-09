@@ -70,6 +70,8 @@ Network layout uses canvas→pixel scale (default 0.05), 20-unit grid snap, auto
 ## Implementation Notes
 
 - Python and JS versions must be kept in sync — changes to rendering logic need to be applied to both
+- The release version is duplicated in all four converters (`__version__` / `VERSION`) and must be
+  bumped in all four together, matching the git tag. There is no packaging file to derive it from.
 - Port triangles: left-side triangles have base at x=0 (left FB border), tip points right; right-side triangles have tip at x=block_width (right FB border)
 - Connection endpoints resolve to triangle apex coordinates via `port_positions` dict (absolute coords)
 - JS `interfaceMap` is a plain object (not a Map) — use `in` operator, not `.has()`
