@@ -63,7 +63,7 @@ TypeResolver indexes `.fbt/.sub/.adp` files by basename and namespace path (`::`
 
 Port colors match 4diac IDE: Event `#63B31F`, BOOL `#A3B08F`, Integer `#18519E`, Real `#DBB418`, String `#BD8663`, Bit `#82A3A9`, Adapter `#845DAF`, Other `#3366FF`.
 
-Font stack: `TGL, 'Times New Roman', Times, serif` with `@font-face` declarations for TGL 0-17 (regular) and TGL 0-16 (italic). Fonts in `tgl/` directory.
+Font stack (default): `TGL, 'Times New Roman', Times, serif` with `@font-face` declarations for TGL 0-17 (regular) and TGL 0-16 (italic). Fonts in `tgl/` directory. Overridable per run via `--font` / `--font-italic` / `--font-size`, or a `[Font]` section in `block_size_settings.ini` (network converters). Overriding both fonts drops the TGL `@font-face` block, which would otherwise misdirect the renderer.
 
 Network layout uses canvas→pixel scale (default 0.05), 20-unit grid snap, auto-scaling from instance bounds.
 
@@ -81,4 +81,7 @@ Network layout uses canvas→pixel scale (default 0.05), 20-unit grid snap, auto
   canvas the layout computed for it. Raqm would give subpixel advances directly but is
   frequently absent from Pillow builds. The JS converters measure via Canvas `measureText`,
   which is already subpixel — they need no equivalent workaround.
+- Measuring font vs rendering font must agree. The JS `_measureText` has to expand the bare
+  `TGL` family to its `_std` face names, because a measurement canvas does not see the SVG's
+  `@font-face` block.
 - SVG uses `<polygon>` for port triangles, `<path>` for adapter symbols and connections

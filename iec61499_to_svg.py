@@ -8,6 +8,7 @@ in the style of 4diac IDE.
 
 import xml.etree.ElementTree as ET
 import argparse
+import os
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -20,9 +21,137 @@ try:
 except ImportError:
     PILLOW_AVAILABLE = False
 
+
+# ---------------------------------------------------------------------------
+# Font resolution
+#
+# A font spec is either a path to a font file (optionally "path#index" to pick
+# a face out of a .ttc collection) or a CSS font-family stack such as
+# "Menlo, Consolas, monospace". For a stack, the first family name is resolved
+# against the installed system fonts so Pillow can measure text in the same
+# font the SVG will actually be rendered with; a mismatch between the measuring
+# font and the rendering font is what makes labels overflow their canvas.
+# ---------------------------------------------------------------------------
+
+_SYSTEM_FONT_DIRS = [
+    os.path.expanduser("~/Library/Fonts"),          # macOS, per user
+    "/Library/Fonts",                               # macOS, system-wide
+    "/System/Library/Fonts",
+    "/System/Library/Fonts/Supplemental",
+    os.path.expanduser("~/.fonts"),                 # Linux
+    os.path.expanduser("~/.local/share/fonts"),
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    "C:\\Windows\\Fonts",                           # Windows
+]
+
+_FONT_EXTENSIONS = (".ttf", ".ttc", ".otf", ".otc")
+
 # Fonts are measured at this multiple of the nominal size and scaled back down,
 # to recover the fractional glyph advances Pillow's basic layout rounds away.
 MEASURE_SUPERSAMPLE = 16
+
+# (family_lower, want_italic) -> (path, index) or None
+_font_lookup_cache: Dict[tuple, Optional[tuple]] = {}
+
+
+def _first_family(stack: str) -> str:
+    """The first family name of a CSS font-family stack, unquoted."""
+    first = stack.split(",")[0].strip()
+    if len(first) >= 2 and first[0] == first[-1] and first[0] in "\"'":
+        first = first[1:-1]
+    return first.strip()
+
+
+def _face_is_italic(style: str) -> bool:
+    lowered = (style or "").lower()
+    return "italic" in lowered or "oblique" in lowered
+
+
+def find_system_font(family: str, want_italic: bool = False) -> Optional[tuple]:
+    """Locate an installed font by family name. Returns (path, face_index)."""
+    if not PILLOW_AVAILABLE or not family:
+        return None
+    key = (family.lower(), want_italic)
+    if key in _font_lookup_cache:
+        return _font_lookup_cache[key]
+
+    fallback = None  # right family, wrong slant - better than nothing
+    result = None
+    for directory in _SYSTEM_FONT_DIRS:
+        if result:
+            break
+        if not os.path.isdir(directory):
+            continue
+        for root, _dirs, files in os.walk(directory):
+            if result:
+                break
+            for name in sorted(files):
+                if not name.lower().endswith(_FONT_EXTENSIONS):
+                    continue
+                path = os.path.join(root, name)
+                for index in range(16):  # .ttc collections hold several faces
+                    try:
+                        probe = ImageFont.truetype(path, 12, index=index)
+                        face_family, face_style = probe.getname()
+                    except Exception:
+                        break
+                    if (face_family or "").lower() == family.lower():
+                        if _face_is_italic(face_style) == want_italic:
+                            result = (path, index)
+                            break
+                        if fallback is None:
+                            fallback = (path, index)
+                if result:
+                    break
+
+    resolved = result or fallback
+    _font_lookup_cache[key] = resolved
+    return resolved
+
+
+def load_font_from_spec(spec: str, size: int, want_italic: bool = False):
+    """Load a Pillow font for a spec that is a file path or a family stack."""
+    if not PILLOW_AVAILABLE or not spec:
+        return None
+    path, index = spec, 0
+    if "#" in spec:
+        head, _, tail = spec.rpartition("#")
+        if tail.isdigit():
+            path, index = head, int(tail)
+    if os.path.isfile(path):
+        try:
+            return ImageFont.truetype(path, size, index=index)
+        except Exception:
+            return None
+    located = find_system_font(_first_family(spec), want_italic)
+    if located:
+        try:
+            return ImageFont.truetype(located[0], size, index=located[1])
+        except Exception:
+            return None
+    return None
+
+
+def css_family_for_spec(spec: str, want_italic: bool = False) -> str:
+    """The CSS font-family value for a spec.
+
+    A family stack is passed through untouched so callers can supply their own
+    fallbacks. A file path is replaced by the font's internal family name, since
+    a filesystem path is meaningless to an SVG renderer.
+    """
+    path = spec.split("#")[0] if "#" in spec else spec
+    if os.path.isfile(path):
+        font = load_font_from_spec(spec, 12, want_italic)
+        if font:
+            try:
+                family = font.getname()[0]
+                if family:
+                    return f'"{family}", sans-serif'
+            except Exception:
+                pass
+        return Path(path).stem
+    return spec
 
 
 @dataclass
@@ -271,10 +400,32 @@ class SVGRenderer:
     TRIANGLE_WIDTH = 5
     TRIANGLE_HEIGHT = 10
 
-    def __init__(self, show_comments: bool = True, show_types: bool = True, show_shadow: bool = True):
+    def __init__(self, show_comments: bool = True, show_types: bool = True, show_shadow: bool = True,
+                 font: Optional[str] = None, font_italic: Optional[str] = None,
+                 font_size: Optional[int] = None):
         self.show_comments = show_comments
         self.show_types = show_types
         self.show_shadow = show_shadow
+
+        # Font overrides shadow the class constants, so every existing
+        # f-string that reads self.FONT_FAMILY / self.FONT_SIZE picks them up.
+        self._font_spec = font
+        self._font_italic_spec = font_italic
+        if font_size is not None:
+            self.FONT_SIZE = font_size
+        if font is not None:
+            self.FONT_FAMILY = css_family_for_spec(font, want_italic=False)
+            if font_italic is None:
+                # Italic falls back to the regular family; font-style="italic"
+                # in the markup makes the renderer synthesise or select italic.
+                self.FONT_FAMILY_ITALIC = self.FONT_FAMILY
+        if font_italic is not None:
+            self.FONT_FAMILY_ITALIC = css_family_for_spec(font_italic, want_italic=True)
+        if font is not None or font_italic is not None:
+            # The bundled @font-face block only maps the TGL family; keep it
+            # only while TGL is still referenced, or it misdirects the renderer.
+            if "tgl" not in (self.FONT_FAMILY + self.FONT_FAMILY_ITALIC).lower():
+                self.FONT_FACE_STYLE = ""
 
         # Calculated dimensions
         self.block_left = 0
@@ -319,9 +470,26 @@ class SVGRenderer:
         if not PILLOW_AVAILABLE:
             return
 
+        # An explicit --font / --font-italic wins: measure in the same font the
+        # SVG declares, so computed label widths match what gets rendered.
+        if self._font_spec:
+            self._font = load_font_from_spec(self._font_spec, self.FONT_SIZE * MEASURE_SUPERSAMPLE,
+                                             want_italic=False)
+        if self._font_italic_spec:
+            self._font_italic = load_font_from_spec(self._font_italic_spec,
+                                                    self.FONT_SIZE * MEASURE_SUPERSAMPLE,
+                                                    want_italic=True)
+        elif self._font_spec:
+            self._font_italic = load_font_from_spec(self._font_spec,
+                                                    self.FONT_SIZE * MEASURE_SUPERSAMPLE,
+                                                    want_italic=True) or self._font
+        if self._font:
+            if self._font_italic is None:
+                self._font_italic = self._font
+            return
+
         # Try to load TGL fonts first (the actual fonts used in SVG), then fallback to system fonts
         # TGL 0-17 is regular, TGL 0-16 is italic (for technical drawings)
-        import os
         home = os.path.expanduser("~")
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -409,7 +577,7 @@ class SVGRenderer:
             return font.getlength(text) / MEASURE_SUPERSAMPLE
         else:
             # Fallback: estimate based on character count
-            char_width = self.FONT_SIZE * 0.6  # average advance
+            char_width = self.FONT_SIZE * 0.6  # monospace-ish average advance
             return len(text) * char_width
 
     def render(self, fb: FunctionBlock) -> str:
@@ -1355,9 +1523,13 @@ class SVGRenderer:
 
 def convert_fbt_to_svg(input_path: str, output_path: Optional[str] = None,
                        show_comments: bool = True, show_types: bool = True,
-                       show_shadow: bool = True) -> str:
+                       show_shadow: bool = True, font: Optional[str] = None,
+                       font_italic: Optional[str] = None,
+                       font_size: Optional[int] = None) -> str:
     parser = IEC61499Parser()
-    renderer = SVGRenderer(show_comments=show_comments, show_types=show_types, show_shadow=show_shadow)
+    renderer = SVGRenderer(show_comments=show_comments, show_types=show_types,
+                           show_shadow=show_shadow, font=font,
+                           font_italic=font_italic, font_size=font_size)
 
     fb = parser.parse(input_path)
     svg = renderer.render(fb)
@@ -1372,7 +1544,9 @@ def convert_fbt_to_svg(input_path: str, output_path: Optional[str] = None,
 
 def convert_batch(input_dir: str, output_dir: str, recursive: bool = True,
                   show_comments: bool = True, show_types: bool = True,
-                  show_shadow: bool = True) -> int:
+                  show_shadow: bool = True, font: Optional[str] = None,
+                  font_italic: Optional[str] = None,
+                  font_size: Optional[int] = None) -> int:
     input_path = Path(input_dir)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1395,7 +1569,8 @@ def convert_batch(input_dir: str, output_dir: str, recursive: bool = True,
 
             convert_fbt_to_svg(str(fbt_file), str(svg_file),
                              show_comments=show_comments, show_types=show_types,
-                             show_shadow=show_shadow)
+                             show_shadow=show_shadow, font=font,
+                             font_italic=font_italic, font_size=font_size)
             count += 1
         except Exception as e:
             print(f"Error converting {fbt_file}: {e}", file=sys.stderr)
@@ -1415,6 +1590,17 @@ def main():
     parser.add_argument("--no-comments", action="store_true", help="Hide comments")
     parser.add_argument("--no-types", action="store_true", help="Hide types")
     parser.add_argument("--no-shadow", action="store_true", help="Disable drop shadow")
+    parser.add_argument("--font", metavar="SPEC",
+                        help="Font for regular text: a CSS font-family stack "
+                             "(e.g. \"Menlo, Consolas, monospace\") or a path to a font "
+                             "file (\"path/Menlo.ttc#0\" selects a face in a collection). "
+                             "Default: the bundled TGL stack.")
+    parser.add_argument("--font-italic", metavar="SPEC",
+                        help="Font for italic text (type names, Event labels). "
+                             "Same format as --font. Defaults to --font when only "
+                             "that is given.")
+    parser.add_argument("--font-size", type=int, metavar="PX",
+                        help="Font size in pixels (default: 14)")
 
     args = parser.parse_args()
     input_path = Path(args.input)
@@ -1427,23 +1613,26 @@ def main():
     show_types = not args.no_types
     show_shadow = not args.no_shadow
 
+    font_opts = dict(font=args.font, font_italic=args.font_italic,
+                     font_size=args.font_size)
+
     if args.batch or input_path.is_dir():
         output_dir = args.output or str(input_path) + "_svg"
         count = convert_batch(str(input_path), output_dir,
                             recursive=not args.no_recursive,
                             show_comments=show_comments, show_types=show_types,
-                            show_shadow=show_shadow)
+                            show_shadow=show_shadow, **font_opts)
         print(f"Converted {count} files to {output_dir}")
     elif args.stdout:
         svg = convert_fbt_to_svg(str(input_path),
                                 show_comments=show_comments, show_types=show_types,
-                                show_shadow=show_shadow)
+                                show_shadow=show_shadow, **font_opts)
         print(svg)
     else:
         output_path = args.output or str(input_path.with_suffix('.svg'))
         convert_fbt_to_svg(str(input_path), output_path,
                           show_comments=show_comments, show_types=show_types,
-                          show_shadow=show_shadow)
+                          show_shadow=show_shadow, **font_opts)
 
 
 if __name__ == "__main__":

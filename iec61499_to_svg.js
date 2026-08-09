@@ -244,6 +244,24 @@ class SVGRenderer {
         this.FONT_FAMILY_ITALIC = "TGL, 'Times New Roman', Times, serif";
         this.FONT_SIZE = 14;
 
+        // Font overrides. options.font / options.fontItalic are CSS font-family
+        // stacks; they are also what text is measured in, so the computed label
+        // widths match what the renderer will actually draw.
+        if (options.fontSize) {
+            this.FONT_SIZE = options.fontSize;
+        }
+        if (options.font) {
+            this.FONT_FAMILY = options.font;
+            // Italic falls back to the regular family; font-style="italic" in
+            // the markup selects or synthesises the slanted face.
+            if (!options.fontItalic) {
+                this.FONT_FAMILY_ITALIC = options.font;
+            }
+        }
+        if (options.fontItalic) {
+            this.FONT_FAMILY_ITALIC = options.fontItalic;
+        }
+
         // @font-face declarations mapping TGL 0-17 (normal) and TGL 0-16 (italic)
         // to a unified "TGL" family
         this.FONT_FACE_STYLE = `
@@ -261,6 +279,13 @@ class SVGRenderer {
       font-weight: normal;
     }
   </style>`;
+
+        // The @font-face block only maps the TGL family; keep it only while TGL
+        // is still referenced, or it misdirects the renderer.
+        if ((options.font || options.fontItalic) &&
+            !`${this.FONT_FAMILY}${this.FONT_FAMILY_ITALIC}`.toLowerCase().includes('tgl')) {
+            this.FONT_FACE_STYLE = '';
+        }
 
         // Canvas for text measurement
         this._measureCanvas = null;
@@ -374,8 +399,15 @@ class SVGRenderer {
 
         if (this._measureContext) {
             const fontStyle = italic ? 'italic ' : '';
-            // Use sans-serif as fallback for measurement since TGL fonts may not be available
-            this._measureContext.font = `${fontStyle}${fontSize}px 'TGL 0-17_std', 'TGL 0-17', 'Times New Roman', Times, serif`;
+            // Measure in the same family the SVG declares. The TGL default is
+            // spelled out with its _std face names, which the bare "TGL" family
+            // of FONT_FAMILY only resolves through the @font-face block above -
+            // that block does not apply to a measurement canvas.
+            const family = italic ? this.FONT_FAMILY_ITALIC : this.FONT_FAMILY;
+            const measureFamily = (family === "TGL, 'Times New Roman', Times, serif")
+                ? "'TGL 0-17_std', 'TGL 0-17', 'Times New Roman', Times, serif"
+                : family;
+            this._measureContext.font = `${fontStyle}${fontSize}px ${measureFamily}`;
             return this._measureContext.measureText(text).width;
         }
 
@@ -1295,6 +1327,8 @@ if (typeof module !== 'undefined' && module.exports) {
         const args = process.argv.slice(2);
         if (args.length === 0) {
             console.log('Usage: node iec61499_to_svg.js input.fbt [-o output.svg] [--no-comments] [--no-types] [--no-shadow]');
+            console.log('                                  [--font FAMILY] [--font-italic FAMILY] [--font-size PX]');
+            console.log('  --font/--font-italic take a CSS font-family stack, e.g. "Menlo, Consolas, monospace"');
             process.exit(1);
         }
 
@@ -1315,6 +1349,12 @@ if (typeof module !== 'undefined' && module.exports) {
                 options.showTypes = false;
             } else if (args[i] === '--no-shadow') {
                 options.showShadow = false;
+            } else if (args[i] === '--font' && args[i + 1]) {
+                options.font = args[++i];
+            } else if (args[i] === '--font-italic' && args[i + 1]) {
+                options.fontItalic = args[++i];
+            } else if (args[i] === '--font-size' && args[i + 1]) {
+                options.fontSize = parseInt(args[++i], 10);
             }
         }
 

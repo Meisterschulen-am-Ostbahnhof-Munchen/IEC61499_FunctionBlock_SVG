@@ -61,6 +61,9 @@ python3 iec61499_to_svg.py input.fbt --stdout
 
 # Options
 python3 iec61499_to_svg.py input.fbt --no-comments --no-types --no-shadow
+
+# Custom fonts (see "Fonts" below)
+python3 iec61499_to_svg.py input.fbt --font "Menlo" --font-size 12
 ```
 
 #### JavaScript (Browser)
@@ -148,6 +151,13 @@ left_right = 0
 ; CLI --type-lib arguments are appended to these paths.
 path = /path/to/your/type/library
 path2 = /path/to/another/library
+
+[Font]
+; Optional. Omit the section to keep the bundled TGL defaults.
+; CLI --font / --font-italic / --font-size override these.
+family = Menlo, Consolas, monospace
+family_italic = Menlo, Consolas, monospace
+size = 12
 ```
 
 ### Requirements
@@ -158,6 +168,54 @@ path2 = /path/to/another/library
 ## Fonts
 
 The `tgl/` directory contains TGL fonts (technical drawing standard) licensed under the [SIL Open Font License](tgl/Open%20Font%20License.txt). Install `TGL 0-17_std.ttf` (regular) and `TGL 0-16_std.ttf` (italic) for best results.
+
+### Choosing a different font
+
+All four converters accept a regular and an italic font, plus a size. Italic is
+used for type names and the `Event` label; regular for everything else.
+
+| Option | Meaning |
+|---|---|
+| `--font SPEC` | Font for regular text |
+| `--font-italic SPEC` | Font for italic text. Defaults to `--font` when only that is given |
+| `--font-size PX` | Font size. Default 14 (single FB) / 12 (network) |
+
+A `SPEC` is either a **CSS font-family stack**, passed through to the SVG
+untouched so you can supply your own fallbacks:
+
+```bash
+python3 iec61499_to_svg.py input.fbt --font "Menlo, Consolas, monospace" --font-size 12
+node iec61499_to_svg.js  input.fbt --font "Menlo, Consolas, monospace" --font-size 12
+```
+
+or a **path to a font file**, with `#N` selecting a face inside a `.ttc`
+collection. The font's internal family name is then written into the SVG, since
+a filesystem path means nothing to an SVG renderer:
+
+```bash
+python3 iec61499_to_svg.py input.fbt --font "/System/Library/Fonts/Menlo.ttc#0"
+```
+
+The Python converters measure text with Pillow, resolving the first family in
+the stack against the installed system fonts by inspecting each face's family
+*and* slant — so `--font "Menlo"` alone still picks Menlo Italic for italic
+runs. Without Pillow, measurement falls back to a character-count estimate and
+labels may be spaced imprecisely. The JavaScript converters measure with the
+Canvas API and need no extra dependency.
+
+The bundled TGL `@font-face` block is emitted only while a TGL family is still
+referenced; overriding both fonts drops it.
+
+**Matching the Eclipse 4diac IDE.** The IDE draws diagrams in its *Diagram Font*
+(`Preferences → General → Appearance → Colors and Fonts → 4diac IDE`), which
+defaults to a monospace face per platform — Menlo 12 on macOS, Consolas 10 on
+Windows, Monospace 10 on Linux. The IDE derives its coordinate unit from that
+font's metrics, so matching it also aligns the drawing with the geometry stored
+in the `.fbt`/`.sub` files:
+
+```bash
+python3 iec61499_to_svg.py input.fbt --font "Menlo, Consolas, monospace" --font-size 12
+```
 
 ## License
 

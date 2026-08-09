@@ -27,6 +27,11 @@ class BlockSizeSettings {
         // Block margins (in pixels)
         this.marginTopBottom = overrides.marginTopBottom ?? overrides.top_bottom ?? 0;
         this.marginLeftRight = overrides.marginLeftRight ?? overrides.left_right ?? 0;
+        // Font overrides. A spec is a CSS font-family stack ("Menlo, monospace").
+        // null/undefined keeps the bundled TGL defaults.
+        this.font = overrides.font ?? overrides.family ?? null;
+        this.fontItalic = overrides.fontItalic ?? overrides.family_italic ?? null;
+        this.fontSize = overrides.fontSize ?? overrides.size ?? null;
     }
 }
 
@@ -54,6 +59,16 @@ function loadBlockSizeSettings(iniText) {
         if (currentSection === "TypeLibrary") {
             if (key.startsWith("path") && valStr) {
                 typeLibPaths.push(valStr);
+            }
+        } else if (currentSection === "Font") {
+            // Font values are family names, not numbers - the numeric branch
+            // below would discard them.
+            if (!valStr) continue;
+            if (key === "size") {
+                const n = parseInt(valStr, 10);
+                if (!isNaN(n)) settings.size = n;
+            } else if (key === "family" || key === "family_italic") {
+                settings[key] = valStr;
             }
         } else {
             const val = parseInt(valStr, 10);
@@ -761,6 +776,9 @@ class NetworkLayoutEngine {
         this.MARGIN = 60;  // Margin around the diagram for interface ports
         this.SCALE = 0.15;  // 4diac canvas units → SVG pixels (lineHeight/100 = 15/100)
         this.settings = settings || new BlockSizeSettings();
+        if (this.settings.fontSize) {
+            this.FONT_SIZE = this.settings.fontSize;
+        }
 
         // Canvas for text measurement (browser only)
         this._canvas = null;
@@ -776,10 +794,16 @@ class NetworkLayoutEngine {
     _measureText(text, italic = false) {
         if (this._ctx) {
             const style = italic ? 'italic' : 'normal';
-            this._ctx.font = `${style} ${this.FONT_SIZE}px "TGL 0-17_std", "TGL 0-17", "Times New Roman", Times, serif`;
+            // Measure in the configured family so computed widths match what
+            // the renderer will draw; falls back to the bundled TGL stack.
+            const override = italic ? (this.settings.fontItalic || this.settings.font)
+                                    : this.settings.font;
+            const family = override ||
+                '"TGL 0-17_std", "TGL 0-17", "Times New Roman", Times, serif';
+            this._ctx.font = `${style} ${this.FONT_SIZE}px ${family}`;
             return this._ctx.measureText(text).width;
         }
-        return text.length * 8.5;
+        return text.length * this.FONT_SIZE * 0.6;
     }
 
     layout(model) {
@@ -1445,6 +1469,27 @@ class NetworkSVGRenderer {
     }
   </style>`;
 
+        // Font overrides shadow the defaults above, so every template literal
+        // that reads this.FONT_FAMILY / this.FONT_SIZE picks them up unchanged.
+        if (this.settings.fontSize) {
+            this.FONT_SIZE = this.settings.fontSize;
+        }
+        if (this.settings.font) {
+            this.FONT_FAMILY = this.settings.font;
+            if (!this.settings.fontItalic) {
+                this.FONT_FAMILY_ITALIC = this.settings.font;
+            }
+        }
+        if (this.settings.fontItalic) {
+            this.FONT_FAMILY_ITALIC = this.settings.fontItalic;
+        }
+        if ((this.settings.font || this.settings.fontItalic) &&
+            !`${this.FONT_FAMILY}${this.FONT_FAMILY_ITALIC}`.toLowerCase().includes('tgl')) {
+            // The @font-face block only maps the TGL faces; drop it once TGL is
+            // no longer referenced, or it misdirects the renderer.
+            this.FONT_FACE_STYLE = '';
+        }
+
         this.BLOCK_STROKE_COLOR = "#A0A0A0";
         this.EVENT_PORT_COLOR = "#63B31F";
         this.BOOL_PORT_COLOR = "#A3B08F";
@@ -1490,10 +1535,16 @@ class NetworkSVGRenderer {
     _measureText(text, italic = false) {
         if (this._ctx) {
             const style = italic ? 'italic' : 'normal';
-            this._ctx.font = `${style} ${this.FONT_SIZE}px "TGL 0-17_std", "TGL 0-17", "Times New Roman", Times, serif`;
+            // Measure in the configured family so computed widths match what
+            // the renderer will draw; falls back to the bundled TGL stack.
+            const override = italic ? (this.settings.fontItalic || this.settings.font)
+                                    : this.settings.font;
+            const family = override ||
+                '"TGL 0-17_std", "TGL 0-17", "Times New Roman", Times, serif';
+            this._ctx.font = `${style} ${this.FONT_SIZE}px ${family}`;
             return this._ctx.measureText(text).width;
         }
-        return text.length * 8.5;
+        return text.length * this.FONT_SIZE * 0.6;
     }
 
     _getPortColor(portType) {
@@ -2258,6 +2309,8 @@ if (typeof module !== 'undefined' && module.exports) {
         const args = process.argv.slice(2);
         if (args.length === 0) {
             console.log('Usage: node iec61499_network_to_svg.js input.fbt [-o output.svg] [--type-lib path] [--no-shadow] [--grid]');
+            console.log('                                          [--settings file.ini] [--font FAMILY] [--font-italic FAMILY] [--font-size PX]');
+            console.log('  --font/--font-italic take a CSS font-family stack, e.g. "Menlo, Consolas, monospace"');
             process.exit(1);
         }
 
@@ -2273,6 +2326,9 @@ if (typeof module !== 'undefined' && module.exports) {
             else if (args[i] === '--no-shadow') options.showShadow = false;
             else if (args[i] === '--grid') options.showGrid = true;
             else if (args[i] === '--settings' && args[i + 1]) settingsPath = args[++i];
+            else if (args[i] === '--font' && args[i + 1]) options.font = args[++i];
+            else if (args[i] === '--font-italic' && args[i + 1]) options.fontItalic = args[++i];
+            else if (args[i] === '--font-size' && args[i + 1]) options.fontSize = parseInt(args[++i], 10);
         }
 
         if (settingsPath) {
@@ -2285,6 +2341,10 @@ if (typeof module !== 'undefined' && module.exports) {
 
         // Merge type library paths: INI defaults + CLI --type-lib arguments
         const settings = options.settingsIni ? loadBlockSizeSettings(options.settingsIni) : new BlockSizeSettings();
+        // CLI font options override whatever the settings file supplied
+        if (options.font) settings.font = options.font;
+        if (options.fontItalic) settings.fontItalic = options.fontItalic;
+        if (options.fontSize) settings.fontSize = options.fontSize;
         const iniTypeLibPaths = settings.typeLibPaths || [];
         for (const p of typeLibPaths) {
             if (!iniTypeLibPaths.includes(p)) iniTypeLibPaths.push(p);

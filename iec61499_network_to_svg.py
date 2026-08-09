@@ -24,9 +24,138 @@ try:
 except ImportError:
     PILLOW_AVAILABLE = False
 
+
+# ---------------------------------------------------------------------------
+# Font resolution
+#
+# A font spec is either a path to a font file (optionally "path#index" to pick
+# a face out of a .ttc collection) or a CSS font-family stack such as
+# "Menlo, Consolas, monospace". For a stack, the first family name is resolved
+# against the installed system fonts so Pillow can measure text in the same
+# font the SVG will actually be rendered with; a mismatch between the measuring
+# font and the rendering font is what makes labels overflow their canvas.
+# ---------------------------------------------------------------------------
+
+_SYSTEM_FONT_DIRS = [
+    os.path.expanduser("~/Library/Fonts"),          # macOS, per user
+    "/Library/Fonts",                               # macOS, system-wide
+    "/System/Library/Fonts",
+    "/System/Library/Fonts/Supplemental",
+    os.path.expanduser("~/.fonts"),                 # Linux
+    os.path.expanduser("~/.local/share/fonts"),
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    "C:\\Windows\\Fonts",                           # Windows
+]
+
+_FONT_EXTENSIONS = (".ttf", ".ttc", ".otf", ".otc")
+
 # Fonts are measured at this multiple of the nominal size and scaled back down,
 # to recover the fractional glyph advances Pillow's basic layout rounds away.
 MEASURE_SUPERSAMPLE = 16
+
+# (family_lower, want_italic) -> (path, index) or None
+_font_lookup_cache: Dict[tuple, Optional[tuple]] = {}
+
+
+def _first_family(stack: str) -> str:
+    """The first family name of a CSS font-family stack, unquoted."""
+    first = stack.split(",")[0].strip()
+    if len(first) >= 2 and first[0] == first[-1] and first[0] in "\"'":
+        first = first[1:-1]
+    return first.strip()
+
+
+def _face_is_italic(style: str) -> bool:
+    lowered = (style or "").lower()
+    return "italic" in lowered or "oblique" in lowered
+
+
+def find_system_font(family: str, want_italic: bool = False) -> Optional[tuple]:
+    """Locate an installed font by family name. Returns (path, face_index)."""
+    if not PILLOW_AVAILABLE or not family:
+        return None
+    key = (family.lower(), want_italic)
+    if key in _font_lookup_cache:
+        return _font_lookup_cache[key]
+
+    fallback = None  # right family, wrong slant - better than nothing
+    result = None
+    for directory in _SYSTEM_FONT_DIRS:
+        if result:
+            break
+        if not os.path.isdir(directory):
+            continue
+        for root, _dirs, files in os.walk(directory):
+            if result:
+                break
+            for name in sorted(files):
+                if not name.lower().endswith(_FONT_EXTENSIONS):
+                    continue
+                path = os.path.join(root, name)
+                for index in range(16):  # .ttc collections hold several faces
+                    try:
+                        probe = ImageFont.truetype(path, 12, index=index)
+                        face_family, face_style = probe.getname()
+                    except Exception:
+                        break
+                    if (face_family or "").lower() == family.lower():
+                        if _face_is_italic(face_style) == want_italic:
+                            result = (path, index)
+                            break
+                        if fallback is None:
+                            fallback = (path, index)
+                if result:
+                    break
+
+    resolved = result or fallback
+    _font_lookup_cache[key] = resolved
+    return resolved
+
+
+def load_font_from_spec(spec: str, size: int, want_italic: bool = False):
+    """Load a Pillow font for a spec that is a file path or a family stack."""
+    if not PILLOW_AVAILABLE or not spec:
+        return None
+    path, index = spec, 0
+    if "#" in spec:
+        head, _, tail = spec.rpartition("#")
+        if tail.isdigit():
+            path, index = head, int(tail)
+    if os.path.isfile(path):
+        try:
+            return ImageFont.truetype(path, size, index=index)
+        except Exception:
+            return None
+    located = find_system_font(_first_family(spec), want_italic)
+    if located:
+        try:
+            return ImageFont.truetype(located[0], size, index=located[1])
+        except Exception:
+            return None
+    return None
+
+
+def css_family_for_spec(spec: str, want_italic: bool = False) -> str:
+    """The CSS font-family value for a spec.
+
+    A family stack is passed through untouched so callers can supply their own
+    fallbacks. A file path is replaced by the font's internal family name, since
+    a filesystem path is meaningless to an SVG renderer.
+    """
+    path = spec.split("#")[0] if "#" in spec else spec
+    if os.path.isfile(path):
+        font = load_font_from_spec(spec, 12, want_italic)
+        if font:
+            try:
+                family = font.getname()[0]
+                if family:
+                    return f'"{family}", sans-serif'
+            except Exception:
+                pass
+        return Path(path).stem
+    return spec
+
 
 
 # ===========================================================================
@@ -48,6 +177,12 @@ class BlockSizeSettings:
     margin_left_right: int = 0
     # Type library root directories (from INI file)
     type_lib_paths: list = None
+    # Font overrides. A spec is a CSS font-family stack ("Menlo, monospace") or
+    # a path to a font file ("path/Menlo.ttc#0" selects a face in a collection).
+    # None keeps the bundled TGL defaults.
+    font: Optional[str] = None
+    font_italic: Optional[str] = None
+    font_size: Optional[int] = None
 
     def __post_init__(self):
         if self.type_lib_paths is None:
@@ -90,6 +225,14 @@ def load_block_size_settings(path: str = None) -> BlockSizeSettings:
                 p = section[key].strip()
                 if p:
                     settings.type_lib_paths.append(p)
+    if "Font" in cp:
+        section = cp["Font"]
+        if section.get("family", "").strip():
+            settings.font = section["family"].strip()
+        if section.get("family_italic", "").strip():
+            settings.font_italic = section["family_italic"].strip()
+        if section.get("size", "").strip():
+            settings.font_size = int(section["size"].strip())
     return settings
 
 
@@ -862,6 +1005,8 @@ class NetworkLayoutEngine:
 
     def __init__(self, settings: BlockSizeSettings = None):
         self.settings = settings or BlockSizeSettings()
+        if self.settings.font_size:
+            self.FONT_SIZE = self.settings.font_size
         self._font = None
         self._font_italic = None
         self._init_fonts()
@@ -878,6 +1023,22 @@ class NetworkLayoutEngine:
     def _init_fonts(self):
         """Initialize fonts for text measurement."""
         if not PILLOW_AVAILABLE:
+            return
+
+        # An explicit font override wins: measure in the same font the SVG
+        # declares, so computed widths match what actually gets rendered.
+        size = self.FONT_SIZE * MEASURE_SUPERSAMPLE
+        if self.settings.font:
+            self._font = load_font_from_spec(self.settings.font, size, want_italic=False)
+        if self.settings.font_italic:
+            self._font_italic = load_font_from_spec(self.settings.font_italic, size,
+                                                    want_italic=True)
+        elif self.settings.font:
+            self._font_italic = load_font_from_spec(self.settings.font, size,
+                                                    want_italic=True) or self._font
+        if self._font:
+            if self._font_italic is None:
+                self._font_italic = self._font
             return
 
         home = os.path.expanduser("~")
@@ -1680,23 +1841,51 @@ class NetworkSVGRenderer:
         self.show_shadow = show_shadow
         self.show_grid = show_grid
         self.settings = settings or BlockSizeSettings()
+
+        # Font overrides shadow the class constants, so every f-string that
+        # reads self.FONT_FAMILY / self.FONT_SIZE picks them up unchanged.
+        if self.settings.font_size:
+            self.FONT_SIZE = self.settings.font_size
+        if self.settings.font:
+            self.FONT_FAMILY = css_family_for_spec(self.settings.font, want_italic=False)
+            if not self.settings.font_italic:
+                self.FONT_FAMILY_ITALIC = self.FONT_FAMILY
+        if self.settings.font_italic:
+            self.FONT_FAMILY_ITALIC = css_family_for_spec(self.settings.font_italic,
+                                                          want_italic=True)
+        if self.settings.font or self.settings.font_italic:
+            # The @font-face block only maps the TGL faces; drop it once TGL is
+            # no longer referenced, or it misdirects the renderer.
+            if "tgl" not in (self.FONT_FAMILY + self.FONT_FAMILY_ITALIC).lower():
+                self.FONT_FACE_STYLE = ""
+
         # Load font for text measurement (same as layout engine)
         self._font = None
         self._font_italic = None
         self._init_fonts()
 
     def _open_font(self, path: str, index: int = 0):
-        """Open a face for measurement at MEASURE_SUPERSAMPLE times nominal size.
-
-        Pillow's basic layout rounds each glyph advance to a whole pixel, and
-        over a long label the error accumulates until text overruns the space
-        the layout reserved for it. See MEASURE_SUPERSAMPLE.
-        """
+        """Open a face for measurement at MEASURE_SUPERSAMPLE times nominal size."""
         return ImageFont.truetype(path, self.FONT_SIZE * MEASURE_SUPERSAMPLE, index=index)
 
     def _init_fonts(self):
         """Initialize fonts for text measurement."""
         if not PILLOW_AVAILABLE:
+            return
+
+        # An explicit font override wins - measure what will be rendered.
+        size = self.FONT_SIZE * MEASURE_SUPERSAMPLE
+        if self.settings.font:
+            self._font = load_font_from_spec(self.settings.font, size, want_italic=False)
+        if self.settings.font_italic:
+            self._font_italic = load_font_from_spec(self.settings.font_italic, size,
+                                                    want_italic=True)
+        elif self.settings.font:
+            self._font_italic = load_font_from_spec(self.settings.font, size,
+                                                    want_italic=True) or self._font
+        if self._font:
+            if self._font_italic is None:
+                self._font_italic = self._font
             return
 
         home = os.path.expanduser("~")
@@ -2807,6 +2996,17 @@ def main():
     parser.add_argument("--no-shadow", action="store_true", help="Disable drop shadow")
     parser.add_argument("--grid", action="store_true", help="Show background grid")
     parser.add_argument("--settings", help="Path to block_size_settings.ini file")
+    parser.add_argument("--font", metavar="SPEC",
+                        help="Font for regular text: a CSS font-family stack "
+                             "(e.g. \"Menlo, Consolas, monospace\") or a path to a font "
+                             "file (\"path/Menlo.ttc#0\" selects a face in a collection). "
+                             "Default: the bundled TGL stack. Overrides [Font] in the "
+                             "settings file.")
+    parser.add_argument("--font-italic", metavar="SPEC",
+                        help="Font for italic text (type names). Same format as --font. "
+                             "Defaults to --font when only that is given.")
+    parser.add_argument("--font-size", type=int, metavar="PX",
+                        help="Font size in pixels (default: 12)")
 
     args = parser.parse_args()
     input_path = Path(args.input)
@@ -2818,6 +3018,14 @@ def main():
     show_shadow = not args.no_shadow
     show_grid = args.grid
     settings = load_block_size_settings(args.settings)
+
+    # CLI font options override whatever the settings file supplied
+    if args.font:
+        settings.font = args.font
+    if args.font_italic:
+        settings.font_italic = args.font_italic
+    if args.font_size:
+        settings.font_size = args.font_size
 
     # Merge type library paths: INI defaults + CLI --type-lib arguments
     type_lib_paths = list(settings.type_lib_paths or [])
