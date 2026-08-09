@@ -1,5 +1,9 @@
 # IEC 61499 Function Block to SVG Converter
 
+[![Release](https://img.shields.io/github/v/release/murinsel/IEC61499_FunctionBlock_SVG?label=version)](https://github.com/murinsel/IEC61499_FunctionBlock_SVG/releases/latest)
+[![Python](https://img.shields.io/badge/python-3-blue)](#requirements)
+[![Node.js](https://img.shields.io/badge/node.js-jsdom-green)](#requirements)
+
 Converts IEC 61499 function block XML definitions (`.fbt`, `.adp`, and `.sub` files) into SVG graphics styled like the [Eclipse 4diac IDE](https://eclipse.dev/4diac/).
 
 Available as both a **Python** script and a **JavaScript** module (browser + Node.js).
