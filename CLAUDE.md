@@ -73,5 +73,12 @@ Network layout uses canvas→pixel scale (default 0.05), 20-unit grid snap, auto
 - Port triangles: left-side triangles have base at x=0 (left FB border), tip points right; right-side triangles have tip at x=block_width (right FB border)
 - Connection endpoints resolve to triangle apex coordinates via `port_positions` dict (absolute coords)
 - JS `interfaceMap` is a plain object (not a Map) — use `in` operator, not `.has()`
-- Text measurement: Pillow `ImageFont` if available, fallback to char_count * avg_width
+- Text measurement: Pillow `ImageFont` if available, fallback to char_count * avg_width.
+  **Measure the advance width (`getlength`), never the ink extent (`getbbox`)**, and open
+  faces at `MEASURE_SUPERSAMPLE`x the nominal size, dividing the result back down: Pillow's
+  basic layout rounds every glyph advance to a whole pixel (Menlo at 12px advances 7.228px
+  but reports 7.0), and over a long label the error accumulates until the text overruns the
+  canvas the layout computed for it. Raqm would give subpixel advances directly but is
+  frequently absent from Pillow builds. The JS converters measure via Canvas `measureText`,
+  which is already subpixel — they need no equivalent workaround.
 - SVG uses `<polygon>` for port triangles, `<path>` for adapter symbols and connections

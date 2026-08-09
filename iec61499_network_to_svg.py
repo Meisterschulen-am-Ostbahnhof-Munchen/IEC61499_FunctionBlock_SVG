@@ -24,6 +24,10 @@ try:
 except ImportError:
     PILLOW_AVAILABLE = False
 
+# Fonts are measured at this multiple of the nominal size and scaled back down,
+# to recover the fractional glyph advances Pillow's basic layout rounds away.
+MEASURE_SUPERSAMPLE = 16
+
 
 # ===========================================================================
 # Block Size Settings (4diac IDE defaults)
@@ -862,6 +866,15 @@ class NetworkLayoutEngine:
         self._font_italic = None
         self._init_fonts()
 
+    def _open_font(self, path: str, index: int = 0):
+        """Open a face for measurement at MEASURE_SUPERSAMPLE times nominal size.
+
+        Pillow's basic layout rounds each glyph advance to a whole pixel, and
+        over a long label the error accumulates until text overruns the space
+        the layout reserved for it. See MEASURE_SUPERSAMPLE.
+        """
+        return ImageFont.truetype(path, self.FONT_SIZE * MEASURE_SUPERSAMPLE, index=index)
+
     def _init_fonts(self):
         """Initialize fonts for text measurement."""
         if not PILLOW_AVAILABLE:
@@ -897,13 +910,13 @@ class NetworkLayoutEngine:
         ]
         for fp in font_candidates:
             try:
-                self._font = ImageFont.truetype(fp, self.FONT_SIZE)
+                self._font = self._open_font(fp)
                 break
             except:
                 continue
         for fp in italic_candidates:
             try:
-                self._font_italic = ImageFont.truetype(fp, self.FONT_SIZE)
+                self._font_italic = self._open_font(fp)
                 break
             except:
                 continue
@@ -913,10 +926,10 @@ class NetworkLayoutEngine:
     def _measure_text(self, text: str, italic: bool = False) -> float:
         if PILLOW_AVAILABLE and self._font:
             font = self._font_italic if italic and self._font_italic else self._font
-            bbox = font.getbbox(text)
-            return bbox[2] - bbox[0] if bbox else len(text) * 8
+            # Advance width, not ink extent; fonts are opened supersampled.
+            return font.getlength(text) / MEASURE_SUPERSAMPLE
         else:
-            return len(text) * 8.5
+            return len(text) * self.FONT_SIZE * 0.6
 
     def layout(self, model: NetworkModel):
         """Compute all positions and sizes."""
@@ -1672,6 +1685,15 @@ class NetworkSVGRenderer:
         self._font_italic = None
         self._init_fonts()
 
+    def _open_font(self, path: str, index: int = 0):
+        """Open a face for measurement at MEASURE_SUPERSAMPLE times nominal size.
+
+        Pillow's basic layout rounds each glyph advance to a whole pixel, and
+        over a long label the error accumulates until text overruns the space
+        the layout reserved for it. See MEASURE_SUPERSAMPLE.
+        """
+        return ImageFont.truetype(path, self.FONT_SIZE * MEASURE_SUPERSAMPLE, index=index)
+
     def _init_fonts(self):
         """Initialize fonts for text measurement."""
         if not PILLOW_AVAILABLE:
@@ -1707,13 +1729,13 @@ class NetworkSVGRenderer:
         ]
         for fp in font_candidates:
             try:
-                self._font = ImageFont.truetype(fp, self.FONT_SIZE)
+                self._font = self._open_font(fp)
                 break
             except:
                 continue
         for fp in italic_candidates:
             try:
-                self._font_italic = ImageFont.truetype(fp, self.FONT_SIZE)
+                self._font_italic = self._open_font(fp)
                 break
             except:
                 continue
@@ -1724,10 +1746,10 @@ class NetworkSVGRenderer:
         """Measure text width for layout calculations."""
         if PILLOW_AVAILABLE and self._font:
             font = self._font_italic if italic and self._font_italic else self._font
-            bbox = font.getbbox(text)
-            return bbox[2] - bbox[0] if bbox else len(text) * 8
+            # Advance width, not ink extent; fonts are opened supersampled.
+            return font.getlength(text) / MEASURE_SUPERSAMPLE
         else:
-            return len(text) * 8.5
+            return len(text) * self.FONT_SIZE * 0.6
 
     def _get_port_color(self, port_type: str) -> str:
         t = port_type

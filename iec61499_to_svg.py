@@ -20,6 +20,10 @@ try:
 except ImportError:
     PILLOW_AVAILABLE = False
 
+# Fonts are measured at this multiple of the nominal size and scaled back down,
+# to recover the fractional glyph advances Pillow's basic layout rounds away.
+MEASURE_SUPERSAMPLE = 16
+
 
 @dataclass
 class Port:
@@ -298,6 +302,18 @@ class SVGRenderer:
         self._font_italic = None
         self._init_fonts()
 
+    def _open_font(self, path: str, index: int = 0):
+        """Open a face for measurement at MEASURE_SUPERSAMPLE times the nominal size.
+
+        Pillow's basic layout engine rounds every glyph advance to a whole
+        pixel (Menlo at 12px advances 7.228px but reports 7.0), and the error
+        accumulates over a long label until the text overruns the canvas the
+        layout computed for it. Measuring a scaled-up face and dividing keeps
+        the fractional part. Raqm would give subpixel advances directly, but it
+        is frequently missing from Pillow builds.
+        """
+        return ImageFont.truetype(path, self.FONT_SIZE * MEASURE_SUPERSAMPLE, index=index)
+
     def _init_fonts(self):
         """Initialize fonts for text measurement if Pillow is available."""
         if not PILLOW_AVAILABLE:
@@ -344,7 +360,7 @@ class SVGRenderer:
 
         for font_path in font_candidates:
             try:
-                self._font = ImageFont.truetype(font_path, self.FONT_SIZE)
+                self._font = self._open_font(font_path)
                 break
             except:
                 continue
@@ -352,7 +368,7 @@ class SVGRenderer:
         # Try to load italic font
         for font_path in italic_candidates:
             try:
-                self._font_italic = ImageFont.truetype(font_path, self.FONT_SIZE)
+                self._font_italic = self._open_font(font_path)
                 break
             except:
                 continue
@@ -387,12 +403,13 @@ class SVGRenderer:
         """Measure text width using Pillow if available, otherwise estimate."""
         if PILLOW_AVAILABLE and self._font:
             font = self._font_italic if italic and self._font_italic else self._font
-            # Use getbbox for accurate measurement
-            bbox = font.getbbox(text)
-            return bbox[2] - bbox[0] if bbox else len(text) * 8
+            # Advance width, not ink extent: trailing spaces and side bearings
+            # occupy layout space. Fonts are opened supersampled (see
+            # _open_font), so divide back down to nominal pixels.
+            return font.getlength(text) / MEASURE_SUPERSAMPLE
         else:
             # Fallback: estimate based on character count
-            char_width = 8.5  # Average character width for font size 14
+            char_width = self.FONT_SIZE * 0.6  # average advance
             return len(text) * char_width
 
     def render(self, fb: FunctionBlock) -> str:
