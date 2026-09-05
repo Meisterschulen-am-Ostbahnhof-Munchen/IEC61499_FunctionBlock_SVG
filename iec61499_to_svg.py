@@ -757,7 +757,7 @@ class SVGRenderer:
     def _calculate_label_width(self, port: Port, is_event: bool, is_left: bool,
                                is_adapter: bool = False) -> float:
         """Calculate the width of an external label for a port."""
-        dash_width = self._measure_text(" – ")
+        dash_width = self._measure_text(" \N{EN DASH} ")
 
         label_width = 0
         if self.show_comments and port.comment:
@@ -1284,7 +1284,7 @@ class SVGRenderer:
                     label_parts.append(_xml_escape(port.comment))
                 if self.show_types:
                     if label_parts:
-                        label_parts.append(" – ")
+                        label_parts.append(" \N{EN DASH} ")
                     # Type in italic using tspan
                     label_parts.append(f'<tspan font-family="{self.FONT_FAMILY_ITALIC}" font-style="italic" dominant-baseline="middle">Event</tspan>')
                 label_text = "".join(label_parts)
@@ -1302,7 +1302,7 @@ class SVGRenderer:
                     label_parts.append(f'<tspan font-family="{self.FONT_FAMILY_ITALIC}" font-style="italic" dominant-baseline="middle">Event</tspan>')
                 if self.show_comments and port.comment:
                     if label_parts:
-                        label_parts.append(" – ")
+                        label_parts.append(" \N{EN DASH} ")
                     label_parts.append(_xml_escape(port.comment))
                 label_text = "".join(label_parts)
                 parts.append(f'''
@@ -1319,7 +1319,7 @@ class SVGRenderer:
                     label_parts.append(_xml_escape(port.comment))
                 if self.show_types:
                     if label_parts:
-                        label_parts.append(" – ")
+                        label_parts.append(" \N{EN DASH} ")
                     label_parts.append(f'<tspan font-family="{self.FONT_FAMILY_ITALIC}" font-style="italic" dominant-baseline="middle">{_xml_escape(port.port_type)}</tspan>')
                 label_text = "".join(label_parts)
                 parts.append(f'''
@@ -1336,7 +1336,7 @@ class SVGRenderer:
                     label_parts.append(f'<tspan font-family="{self.FONT_FAMILY_ITALIC}" font-style="italic" dominant-baseline="middle">{_xml_escape(port.port_type)}</tspan>')
                 if self.show_comments and port.comment:
                     if label_parts:
-                        label_parts.append(" – ")
+                        label_parts.append(" \N{EN DASH} ")
                     label_parts.append(_xml_escape(port.comment))
                 label_text = "".join(label_parts)
                 parts.append(f'''
@@ -1353,7 +1353,7 @@ class SVGRenderer:
                     label_parts.append(_xml_escape(port.comment))
                 if self.show_types:
                     if label_parts:
-                        label_parts.append(" – ")
+                        label_parts.append(" \N{EN DASH} ")
                     # Use short adapter type name (last part after ::)
                     short_type = port.port_type.split("::")[-1] if "::" in port.port_type else port.port_type
                     label_parts.append(f'<tspan font-family="{self.FONT_FAMILY_ITALIC}" font-style="italic" dominant-baseline="middle">{_xml_escape(short_type)}</tspan>')
@@ -1373,7 +1373,7 @@ class SVGRenderer:
                     label_parts.append(f'<tspan font-family="{self.FONT_FAMILY_ITALIC}" font-style="italic" dominant-baseline="middle">{_xml_escape(short_type)}</tspan>')
                 if self.show_comments and port.comment:
                     if label_parts:
-                        label_parts.append(" – ")
+                        label_parts.append(" \N{EN DASH} ")
                     label_parts.append(_xml_escape(port.comment))
                 label_text = "".join(label_parts)
                 parts.append(f'''
