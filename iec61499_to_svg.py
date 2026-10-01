@@ -1584,6 +1584,9 @@ def convert_batch(input_dir: str, output_dir: str, recursive: bool = True,
     sub_pattern = "**/*.sub" if recursive else "*.sub"
     fbt_files.extend(input_path.glob(sub_pattern))
 
+    fct_pattern = "**/*.fct" if recursive else "*.fct"
+    fbt_files.extend(input_path.glob(fct_pattern))
+
     count = 0
     for fbt_file in fbt_files:
         try:
