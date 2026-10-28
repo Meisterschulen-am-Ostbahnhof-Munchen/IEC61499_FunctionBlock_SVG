@@ -238,6 +238,21 @@ def load_block_size_settings(path: str = None) -> BlockSizeSettings:
     return settings
 
 
+COMMENT_LINE_HEIGHT = 15  # line height of the header comment (same as the instance label line height)
+
+
+def _comment_lines(comment: str) -> List[str]:
+    """Split a Comment attribute into display lines for the diagram header.
+
+    A comment may contain line breaks (``&#10;`` in the XML, as written by the
+    4diac IDE); leading whitespace of a continuation line is dropped.
+    """
+    lines = [line.strip() for line in comment.splitlines()]
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines
+
+
 def _truncate_label(text: str, max_len: int) -> str:
     """Truncate a label and append '...' if it exceeds max_len characters.
 
@@ -1473,6 +1488,10 @@ class NetworkLayoutEngine:
         Sidebars are adjusted to span from header separator to border bottom.
         """
         HEADER_HEIGHT = 25   # Height of the header bar (margin + text + margin)
+        # One extra text line per line break in the comment
+        comment_lines = _comment_lines(model.comment)
+        if len(comment_lines) > 1:
+            HEADER_HEIGHT += (len(comment_lines) - 1) * COMMENT_LINE_HEIGHT
 
         # Determine the full horizontal and vertical extent (sidebars + instances)
         all_x = []
@@ -1517,7 +1536,13 @@ class NetworkLayoutEngine:
         network_left = content_left + input_sw
         network_right = content_right - output_sw
         network_w = network_right - network_left
-        network_h = content_bottom - content_top + 2 * border_pad_v + 25  # include header + padding
+        network_h = content_bottom - content_top + 2 * border_pad_v + HEADER_HEIGHT  # include header + padding
+
+        # The comment lines must fit into the header (bold text, hence the margin);
+        # widen the network area instead of letting the text be clipped by the viewBox.
+        if comment_lines:
+            comment_w = max(self._measure_text(line) for line in comment_lines) * 1.05 + 10
+            MIN_NETWORK_WIDTH = max(MIN_NETWORK_WIDTH, comment_w - input_sw - output_sw)
 
         if network_w < MIN_NETWORK_WIDTH:
             extra = MIN_NETWORK_WIDTH - network_w
@@ -2122,16 +2147,20 @@ class NetworkSVGRenderer:
             # Comment text
             if model.comment:
                 text_x = hx + 5
-                text_y = hy + hh / 2 + self.FONT_SIZE * 0.35
-                # Escape XML entities in comment
-                comment_text = (model.comment
-                    .replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace('"', "&quot;"))
-                parts.append(f'  <text x="{text_x:.1f}" y="{text_y:.1f}"'
-                            f' font-family="{self.FONT_FAMILY}" font-size="{self.FONT_SIZE}"'
-                            f' font-weight="bold" fill="#333333">{comment_text}</text>')
+                lines = _comment_lines(model.comment)
+                line_h = COMMENT_LINE_HEIGHT
+                # Vertically centered block of lines; a single line sits at the center as before
+                first_y = hy + hh / 2 - (len(lines) - 1) * line_h / 2 + self.FONT_SIZE * 0.35
+                for n, line in enumerate(lines):
+                    # Escape XML entities in comment
+                    comment_text = (line
+                        .replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;")
+                        .replace('"', "&quot;"))
+                    parts.append(f'  <text x="{text_x:.1f}" y="{first_y + n * line_h:.1f}"'
+                                f' font-family="{self.FONT_FAMILY}" font-size="{self.FONT_SIZE}"'
+                                f' font-weight="bold" fill="#333333">{comment_text}</text>')
 
         # Render sidebar backgrounds (behind everything else)
         parts.append('  <g id="sidebars">')

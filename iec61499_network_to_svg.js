@@ -82,6 +82,19 @@ function loadBlockSizeSettings(iniText) {
     return bs;
 }
 
+const COMMENT_LINE_HEIGHT = 15; // line height of the header comment (same as the instance label line height)
+
+/**
+ * Split a Comment attribute into display lines for the diagram header.
+ * A comment may contain line breaks (&#10; in the XML, as written by the 4diac IDE);
+ * leading whitespace of a continuation line is dropped.
+ */
+function _commentLines(comment) {
+    const lines = comment.split(/\r\n|\r|\n/).map(line => line.trim());
+    while (lines.length && !lines[lines.length - 1]) lines.pop();
+    return lines;
+}
+
 function _truncateLabel(text, maxLen) {
     if (maxLen <= 0 || text.length <= maxLen) return text;
     return text.substring(0, maxLen) + "\u2026";
@@ -1133,7 +1146,10 @@ class NetworkLayoutEngine {
     }
 
     _computeHeaderAndBorder(model) {
-        const HEADER_HEIGHT = 25; // Height of the header bar (margin + text + margin)
+        let HEADER_HEIGHT = 25; // Height of the header bar (margin + text + margin)
+        // One extra text line per line break in the comment
+        const commentLines = _commentLines(model.comment);
+        if (commentLines.length > 1) HEADER_HEIGHT += (commentLines.length - 1) * COMMENT_LINE_HEIGHT;
 
         // Determine the full horizontal and vertical extent (sidebars + instances)
         const allX = [];
@@ -1167,7 +1183,7 @@ class NetworkLayoutEngine {
 
         // 4diac IDE enforces a minimum network area size (2224×1148 retina → 1112×574 CSS px).
         // This is the INNER area between sidebars and below the header.
-        const MIN_NETWORK_WIDTH = 1112;
+        let MIN_NETWORK_WIDTH = 1112;
         const MIN_NETWORK_HEIGHT = 574;
 
         // Compute the inner network area (between sidebar edges)
@@ -1176,7 +1192,14 @@ class NetworkLayoutEngine {
         const networkLeft = contentLeft + inputSW;
         const networkRight = contentRight - outputSW;
         const networkW = networkRight - networkLeft;
-        const networkH = contentBottom - contentTop + 2 * borderPadV + 25;
+        const networkH = contentBottom - contentTop + 2 * borderPadV + HEADER_HEIGHT;
+
+        // The comment lines must fit into the header (bold text, hence the margin);
+        // widen the network area instead of letting the text be clipped by the viewBox.
+        if (commentLines.length) {
+            const commentW = Math.max(...commentLines.map(line => this._measureText(line))) * 1.05 + 10;
+            MIN_NETWORK_WIDTH = Math.max(MIN_NETWORK_WIDTH, commentW - inputSW - outputSW);
+        }
 
         if (networkW < MIN_NETWORK_WIDTH) {
             const extra = MIN_NETWORK_WIDTH - networkW;
@@ -1689,13 +1712,17 @@ class NetworkSVGRenderer {
             // Comment text
             if (model.comment) {
                 const textX = h.x + 5;
-                const textY = h.y + h.h / 2 + this.FONT_SIZE * 0.35;
-                const commentText = model.comment
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
-                    .replace(/"/g, "&quot;");
-                parts.push(`  <text x="${textX.toFixed(1)}" y="${textY.toFixed(1)}" font-family="${this.FONT_FAMILY}" font-size="${this.FONT_SIZE}" font-weight="bold" fill="#333333">${commentText}</text>`);
+                const lines = _commentLines(model.comment);
+                // Vertically centered block of lines; a single line sits at the center as before
+                const firstY = h.y + h.h / 2 - (lines.length - 1) * COMMENT_LINE_HEIGHT / 2 + this.FONT_SIZE * 0.35;
+                lines.forEach((line, n) => {
+                    const commentText = line
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;")
+                        .replace(/"/g, "&quot;");
+                    parts.push(`  <text x="${textX.toFixed(1)}" y="${(firstY + n * COMMENT_LINE_HEIGHT).toFixed(1)}" font-family="${this.FONT_FAMILY}" font-size="${this.FONT_SIZE}" font-weight="bold" fill="#333333">${commentText}</text>`);
+                });
             }
         }
 
