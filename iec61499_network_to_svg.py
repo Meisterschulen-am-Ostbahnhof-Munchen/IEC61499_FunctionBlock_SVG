@@ -55,6 +55,9 @@ _FONT_EXTENSIONS = (".ttf", ".ttc", ".otf", ".otc")
 # Fonts are measured at this multiple of the nominal size and scaled back down,
 # to recover the fractional glyph advances Pillow's basic layout rounds away.
 MEASURE_SUPERSAMPLE = 16
+# No bold face is loaded for measuring; bold glyphs are about 10 % wider than regular ones,
+# so bold text is measured conservatively as the regular width times this factor.
+BOLD_WIDTH_FACTOR = 1.1
 
 # (family_lower, want_italic) -> (path, index) or None
 _font_lookup_cache: Dict[tuple, Optional[tuple]] = {}
@@ -1102,13 +1105,14 @@ class NetworkLayoutEngine:
         if self._font_italic is None and self._font is not None:
             self._font_italic = self._font
 
-    def _measure_text(self, text: str, italic: bool = False) -> float:
+    def _measure_text(self, text: str, italic: bool = False, bold: bool = False) -> float:
         if PILLOW_AVAILABLE and self._font:
             font = self._font_italic if italic and self._font_italic else self._font
             # Advance width, not ink extent; fonts are opened supersampled.
-            return font.getlength(text) / MEASURE_SUPERSAMPLE
+            width = font.getlength(text) / MEASURE_SUPERSAMPLE
         else:
-            return len(text) * self.FONT_SIZE * 0.6
+            width = len(text) * self.FONT_SIZE * 0.6
+        return width * BOLD_WIDTH_FACTOR if bold else width
 
     def layout(self, model: NetworkModel):
         """Compute all positions and sizes."""
@@ -1539,10 +1543,10 @@ class NetworkLayoutEngine:
         network_w = network_right - network_left
         network_h = content_bottom - content_top + 2 * border_pad_v + HEADER_HEIGHT  # include header + padding
 
-        # The comment lines must fit into the header (bold text, hence the margin);
-        # widen the network area instead of letting the text be clipped by the viewBox.
+        # The comment lines (drawn bold) must fit into the header; widen the network
+        # area instead of letting the text be clipped by the viewBox.
         if comment_lines:
-            comment_w = max(self._measure_text(line) for line in comment_lines) * 1.05 + 10
+            comment_w = max(self._measure_text(line, bold=True) for line in comment_lines) + 10
             MIN_NETWORK_WIDTH = max(MIN_NETWORK_WIDTH, comment_w - input_sw - output_sw)
 
         if network_w < MIN_NETWORK_WIDTH:

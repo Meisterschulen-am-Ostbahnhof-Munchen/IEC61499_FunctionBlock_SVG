@@ -84,6 +84,9 @@ function loadBlockSizeSettings(iniText) {
 
 // Line height of the header comment relative to the font size (15 px at the default size 12)
 const COMMENT_LINE_HEIGHT_FACTOR = 1.25;
+// Bold glyphs are about 10 % wider than regular ones; used for the measurement fallback
+// when no canvas (and thus no bold metrics) is available.
+const BOLD_WIDTH_FACTOR = 1.1;
 
 /**
  * Split a Comment attribute into display lines for the diagram header.
@@ -807,9 +810,9 @@ class NetworkLayoutEngine {
         } catch (e) {}
     }
 
-    _measureText(text, italic = false) {
+    _measureText(text, italic = false, bold = false) {
         if (this._ctx) {
-            const style = italic ? 'italic' : 'normal';
+            const style = (bold ? 'bold ' : '') + (italic ? 'italic' : 'normal');
             // Measure in the configured family so computed widths match what
             // the renderer will draw; falls back to the bundled TGL stack.
             const override = italic ? (this.settings.fontItalic || this.settings.font)
@@ -819,7 +822,8 @@ class NetworkLayoutEngine {
             this._ctx.font = `${style} ${this.FONT_SIZE}px ${family}`;
             return this._ctx.measureText(text).width;
         }
-        return text.length * this.FONT_SIZE * 0.6;
+        const width = text.length * this.FONT_SIZE * 0.6;
+        return bold ? width * BOLD_WIDTH_FACTOR : width;
     }
 
     layout(model) {
@@ -1195,10 +1199,10 @@ class NetworkLayoutEngine {
         const networkW = networkRight - networkLeft;
         const networkH = contentBottom - contentTop + 2 * borderPadV + HEADER_HEIGHT;
 
-        // The comment lines must fit into the header (bold text, hence the margin);
-        // widen the network area instead of letting the text be clipped by the viewBox.
+        // The comment lines (drawn bold) must fit into the header; widen the network
+        // area instead of letting the text be clipped by the viewBox.
         if (commentLines.length) {
-            const commentW = Math.max(...commentLines.map(line => this._measureText(line))) * 1.05 + 10;
+            const commentW = Math.max(...commentLines.map(line => this._measureText(line, false, true))) + 10;
             MIN_NETWORK_WIDTH = Math.max(MIN_NETWORK_WIDTH, commentW - inputSW - outputSW);
         }
 
