@@ -13,14 +13,13 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+import iec61499_network_to_svg as converter  # noqa: E402
 FIXTURE = ROOT / "tests" / "fixtures" / "MultilineComment.fbt"
 NS = "{http://www.w3.org/2000/svg}"
-EXPECTED = [
-    "Erste Zeile des Kommentars",
-    "zweite Zeile, die deutlich laenger ist als die erste und trotzdem komplett im Diagramm "
-    "sichtbar sein muss, auch wenn sie breiter als das Netzwerk ist",
-    "dritte Zeile",
-]
+# The comment lines as the generator displays them (stripped); the second one is wider than
+# the minimum network width, so the diagram has to be widened to show it.
+EXPECTED = [line.strip() for line in ET.parse(FIXTURE).getroot().get("Comment").splitlines()]
 
 
 def check(font_size: int) -> list:
@@ -40,13 +39,19 @@ def check(font_size: int) -> list:
     if any(b - a < font_size for a, b in zip(ys, ys[1:])):
         errors.append(f"font size {font_size}: header lines overlap, y positions {ys}")
 
+    # Measure the rendered width with the generator's own bold measurement and compare the
+    # text's left and right edge with the viewBox (the comment is drawn left-aligned at x).
+    settings = converter.load_block_size_settings()
+    settings.font_size = font_size
+    engine = converter.NetworkLayoutEngine(settings=settings)
     vb_x, _, vb_w, _ = (float(v) for v in re.split(r"[ ,]+", root.get("viewBox").strip()))
     for t in texts:
-        # conservative lower bound of the glyph width, as in check_viewbox.py
+        text = "".join(t.itertext())
         left = float(t.get("x"))
-        width = len("".join(t.itertext())) * 3.0
-        if left < vb_x or left + width > vb_x + vb_w:
-            errors.append(f"font size {font_size}: comment line {''.join(t.itertext())!r} lies outside the viewBox")
+        right = left + engine._measure_text(text, bold=True)
+        if left < vb_x or right > vb_x + vb_w:
+            errors.append(f"font size {font_size}: comment line {text!r} spans x={left:.1f}..{right:.1f}, "
+                          f"viewBox x={vb_x:.1f}..{vb_x + vb_w:.1f}")
     return errors
 
 
