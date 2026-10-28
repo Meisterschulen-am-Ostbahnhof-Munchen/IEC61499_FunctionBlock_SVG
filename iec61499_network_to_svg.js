@@ -82,7 +82,8 @@ function loadBlockSizeSettings(iniText) {
     return bs;
 }
 
-const COMMENT_LINE_HEIGHT = 15; // line height of the header comment (same as the instance label line height)
+// Line height of the header comment relative to the font size (15 px at the default size 12)
+const COMMENT_LINE_HEIGHT_FACTOR = 1.25;
 
 /**
  * Split a Comment attribute into display lines for the diagram header.
@@ -1149,7 +1150,7 @@ class NetworkLayoutEngine {
         let HEADER_HEIGHT = 25; // Height of the header bar (margin + text + margin)
         // One extra text line per line break in the comment
         const commentLines = _commentLines(model.comment);
-        if (commentLines.length > 1) HEADER_HEIGHT += (commentLines.length - 1) * COMMENT_LINE_HEIGHT;
+        if (commentLines.length > 1) HEADER_HEIGHT += (commentLines.length - 1) * this.FONT_SIZE * COMMENT_LINE_HEIGHT_FACTOR;
 
         // Determine the full horizontal and vertical extent (sidebars + instances)
         const allX = [];
@@ -1714,14 +1715,15 @@ class NetworkSVGRenderer {
                 const textX = h.x + 5;
                 const lines = _commentLines(model.comment);
                 // Vertically centered block of lines; a single line sits at the center as before
-                const firstY = h.y + h.h / 2 - (lines.length - 1) * COMMENT_LINE_HEIGHT / 2 + this.FONT_SIZE * 0.35;
+                const lineH = this.FONT_SIZE * COMMENT_LINE_HEIGHT_FACTOR;
+                const firstY = h.y + h.h / 2 - (lines.length - 1) * lineH / 2 + this.FONT_SIZE * 0.35;
                 lines.forEach((line, n) => {
                     const commentText = line
                         .replace(/&/g, "&amp;")
                         .replace(/</g, "&lt;")
                         .replace(/>/g, "&gt;")
                         .replace(/"/g, "&quot;");
-                    parts.push(`  <text x="${textX.toFixed(1)}" y="${(firstY + n * COMMENT_LINE_HEIGHT).toFixed(1)}" font-family="${this.FONT_FAMILY}" font-size="${this.FONT_SIZE}" font-weight="bold" fill="#333333">${commentText}</text>`);
+                    parts.push(`  <text x="${textX.toFixed(1)}" y="${(firstY + n * lineH).toFixed(1)}" font-family="${this.FONT_FAMILY}" font-size="${this.FONT_SIZE}" font-weight="bold" fill="#333333">${commentText}</text>`);
                 });
             }
         }

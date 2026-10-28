@@ -23,21 +23,22 @@ EXPECTED = [
 ]
 
 
-def main() -> int:
+def check(font_size: int) -> list:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "out.svg"
-        subprocess.run([sys.executable, str(ROOT / "iec61499_network_to_svg.py"), str(FIXTURE), "-o", str(out)],
-                       check=True, capture_output=True)
+        subprocess.run([sys.executable, str(ROOT / "iec61499_network_to_svg.py"), str(FIXTURE), "-o", str(out),
+                        "--font-size", str(font_size)], check=True, capture_output=True)
         root = ET.parse(out).getroot()
 
     texts = [t for t in root.iter(NS + "text") if t.get("fill") == "#333333" and t.get("font-weight") == "bold"]
     lines = ["".join(t.itertext()) for t in texts]
     errors = []
     if lines != EXPECTED:
-        errors.append(f"header lines {lines!r}, expected {EXPECTED!r}")
+        errors.append(f"font size {font_size}: header lines {lines!r}, expected {EXPECTED!r}")
     ys = [float(t.get("y")) for t in texts]
-    if len(ys) != len(set(ys)) or ys != sorted(ys):
-        errors.append(f"header lines must be on distinct, increasing y positions: {ys}")
+    # lines must not overlap: the baseline distance grows with the font size
+    if any(b - a < font_size for a, b in zip(ys, ys[1:])):
+        errors.append(f"font size {font_size}: header lines overlap, y positions {ys}")
 
     vb_x, _, vb_w, _ = (float(v) for v in re.split(r"[ ,]+", root.get("viewBox").strip()))
     for t in texts:
@@ -45,8 +46,12 @@ def main() -> int:
         left = float(t.get("x"))
         width = len("".join(t.itertext())) * 3.0
         if left < vb_x or left + width > vb_x + vb_w:
-            errors.append(f"comment line {''.join(t.itertext())!r} lies outside the viewBox")
+            errors.append(f"font size {font_size}: comment line {''.join(t.itertext())!r} lies outside the viewBox")
+    return errors
 
+
+def main() -> int:
+    errors = [e for size in (12, 24) for e in check(size)]
     for e in errors:
         print("ERROR:", e)
     if not errors:

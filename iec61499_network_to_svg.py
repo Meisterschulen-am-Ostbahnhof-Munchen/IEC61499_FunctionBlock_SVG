@@ -238,7 +238,8 @@ def load_block_size_settings(path: str = None) -> BlockSizeSettings:
     return settings
 
 
-COMMENT_LINE_HEIGHT = 15  # line height of the header comment (same as the instance label line height)
+# Line height of the header comment relative to the font size (15 px at the default size 12)
+COMMENT_LINE_HEIGHT_FACTOR = 1.25
 
 
 def _comment_lines(comment: str) -> List[str]:
@@ -1491,7 +1492,7 @@ class NetworkLayoutEngine:
         # One extra text line per line break in the comment
         comment_lines = _comment_lines(model.comment)
         if len(comment_lines) > 1:
-            HEADER_HEIGHT += (len(comment_lines) - 1) * COMMENT_LINE_HEIGHT
+            HEADER_HEIGHT += (len(comment_lines) - 1) * self.FONT_SIZE * COMMENT_LINE_HEIGHT_FACTOR
 
         # Determine the full horizontal and vertical extent (sidebars + instances)
         all_x = []
@@ -2148,7 +2149,7 @@ class NetworkSVGRenderer:
             if model.comment:
                 text_x = hx + 5
                 lines = _comment_lines(model.comment)
-                line_h = COMMENT_LINE_HEIGHT
+                line_h = self.FONT_SIZE * COMMENT_LINE_HEIGHT_FACTOR
                 # Vertically centered block of lines; a single line sits at the center as before
                 first_y = hy + hh / 2 - (len(lines) - 1) * line_h / 2 + self.FONT_SIZE * 0.35
                 for n, line in enumerate(lines):
